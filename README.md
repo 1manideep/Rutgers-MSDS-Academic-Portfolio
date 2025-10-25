@@ -18,15 +18,15 @@ The goal of this portfolio is to demonstrate statistical rigor, programming dept
 📂 Repository Structure
 
 
-• data-mining/ -- Data Mining	Supervised & unsupervised learning, cross-validation, model evaluation, regularization
+    • data-mining/ -- Data Mining	Supervised & unsupervised learning, cross-validation, model evaluation, regularization
 
-• data-wrangling/ -- Data Wrangling	Data cleaning, transformation, feature engineering, and pipeline construction using R
+    • data-wrangling/ -- Data Wrangling	Data cleaning, transformation, feature engineering, and pipeline construction using R
 
-• data-structures/ -- Data Structures & Algorithms	Algorithmic thinking, recursion, graphs, and complexity analysis in Python
+    • data-structures/ -- Data Structures & Algorithms	Algorithmic thinking, recursion, graphs, and complexity analysis in Python
 
-• stat-models-comput/ -- Statistical Models and Computing	Linear/GLM modeling, bootstrapping, and simulation-based inference
+    • stat-models-comput/ -- Statistical Models and Computing	Linear/GLM modeling, bootstrapping, and simulation-based inference
 
-• regression-time-series/ -- Regression and Time Series	Forecasting, ARIMA, trend decomposition, and temporal analysis
+    • regression-time-series/ -- Regression and Time Series	Forecasting, ARIMA, trend decomposition, and temporal analysis
 
 
 
