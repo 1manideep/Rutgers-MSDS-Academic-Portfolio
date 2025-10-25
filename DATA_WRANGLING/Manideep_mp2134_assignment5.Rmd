@@ -1,0 +1,254 @@
+---
+title: "HW5"
+output: html_document
+date: "2025-04-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Problem 1
+```{r}
+library(tidyverse)
+library(gutenbergr)
+library(tm)
+library(broom)
+library(tidytext)
+library(stringr)
+library(Matrix)
+library(topicmodels)
+```
+
+```{r}
+auth <- gutenberg_authors %>% 
+  filter(str_detect(author, "Stevenson")) %>% 
+  select(gutenberg_author_id, author)
+print(auth)
+
+works <- gutenberg_works() %>% 
+  inner_join(auth, by = "gutenberg_author_id", suffix = c("_work", "_auth"))
+print(works %>% select(gutenberg_id, title, author_auth))
+
+```
+
+```{r}
+texts <- gutenberg_download(works$gutenberg_id, meta_fields = c("title", "author"))
+```
+
+```{r}
+library(tidytext)
+tidy_txt <- texts %>% 
+  mutate(text = as.character(text)) %>%  
+  unnest_tokens(word, text) %>% 
+  anti_join(stop_words, by = "word") %>% 
+  filter(!str_detect(word, "^\\d+$")) %>% 
+  filter(str_length(word) > 2)
+head(tidy_txt, 10)
+```
+
+```{r}
+freq <- tidy_txt %>% 
+  count(title, word, sort = TRUE) %>% 
+  ungroup()
+
+dtm <- freq %>% 
+  cast_sparse(title, word, n)
+print(dim(dtm))
+print(dtm[1:5, 1:5])
+```
+
+```{r}
+set.seed(597)
+lda_mod <- LDA(dtm, k = 2, control = list(seed = 597))
+print(lda_mod)
+```
+#part a
+```{r}
+beta <- tidy(lda_mod, matrix = "beta")
+
+top_words <- beta %>% 
+  group_by(topic) %>% 
+  top_n(15, beta) %>% 
+  arrange(topic, desc(beta))
+print(top_words)
+```
+
+```{r}
+ggplot(top_words, aes(x = reorder_within(term, beta, topic), y = beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered() +
+  scale_fill_manual(values = c("1" = "blue", "2" = "darkgreen")) +
+  labs(title = "Top 15 Words per Topic", x = "Word", y = "Beta")
+```
+#part b 
+The LDA analysis, splits stevensons texts into two topics. First one has words like day, life and people foucsing on events and talk more about historical events, second one has words like love, cried and dear which seems to be more personal emtions, feelings and individual experiences.
+#part c
+```{r}
+gamma <- tidy(lda_mod, matrix = "gamma")
+
+doc_max <- gamma %>% 
+  group_by(document) %>% 
+  slice_max(gamma, n = 1) %>% 
+  ungroup() %>% 
+  filter(gamma >= 0.99)
+print(doc_max)
+```
+
+```{r}
+doc_info <- doc_max %>% 
+  left_join(works, by = c("document" = "title")) %>% 
+  select(gutenberg_id, title = document, topic, gamma, author_auth)
+print(doc_info)
+```
+For first topics, the document titles represent historical events and war. for example, A Footnote to History: Eight Years of Trouble in Samoa and American Men of Action. This is what my interpretation in part b suggested. My interpretation is correct for this topics.
+#Problem 2
+#part a
+```{r}
+#install.packages("forecast")
+library(gapminder)
+library(tidyverse)
+library(forecast)
+library(broom)
+
+ma1_res <- gapminder %>% 
+  group_by(country) %>% 
+  arrange(year) %>%
+  summarize(mod = list(forecast::Arima(lifeExp, order = c(0,0,1))), .groups = "drop") %>% 
+  mutate(aic = map_dbl(mod, AIC),
+         bic = map_dbl(mod, BIC))
+
+print(ma1_res)
+
+ggplot(ma1_res, aes(x = aic, y = bic)) +
+  geom_point() +
+  labs(title = "AIC vs BIC (ARIMA(0,0,1)",
+       x = "AIC", y = "BIC")
+```
+The plot shows a positive linear relationship. This means that if AIC values are lower, BIC values will also be lower and vice versa. Both AIC and BIC provide similar relative rankings for the model across countries.
+#part b
+```{r}
+mods <- list(
+  "ARIMA(0,0,1)" = c(0,0,1),
+  "ARIMA(0,0,2)" = c(0,0,2),
+  "ARIMA(0,0,3)" = c(0,0,3),
+  "ARIMA(0,1,0)" = c(0,1,0),
+  "ARIMA(0,1,1)" = c(0,1,1)
+)
+
+mod_comp <- gapminder %>% 
+  group_by(country) %>% 
+  arrange(year) %>% 
+  nest() %>% 
+  mutate(results = map(data, function(df) {
+    map_dfr(names(mods), function(mn) {
+      fit <- tryCatch(forecast::Arima(df$lifeExp, order = mods[[mn]]),
+                      error = function(e) NA)
+      tibble(model = mn, aic = if (is.list(fit)) AIC(fit) else NA_real_)
+    })
+  })) %>% 
+  select(-data) %>% 
+  unnest(results)
+
+print(mod_comp)
+
+ggplot(mod_comp, aes(x = model, y = aic)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of AIC (for Different ARIMA Models)",
+       x = "Model", y = "AIC")
+```
+ARIMA(0,1,1) has the lowest AIC scores, so it fits the data best for most countries.
+#part c
+```{r}
+best_mod <- "ARIMA(0,1,1)" 
+
+euro_res <- gapminder %>% 
+  filter(continent == "Europe") %>% 
+  group_by(country) %>% 
+  arrange(year) %>% 
+  nest() %>% 
+  mutate(
+    mod = map(data, ~ tryCatch(forecast::Arima(.x$lifeExp, order = mods[[best_mod]]),
+                                error = function(e) NA)),
+    tidy_mod = map(mod, ~ if (is.list(.x)) broom::tidy(.x) else tibble())
+  ) %>% 
+  select(country, tidy_mod) %>% 
+  unnest(tidy_mod)
+
+print(euro_res)
+``` 
+
+#Problem 3
+#part a 
+```{r}
+library(tidyverse)
+library(gapminder)
+library(broom)
+if (!require(ggbeeswarm)) install.packages("ggbeeswarm")
+library(ggbeeswarm)
+
+models <- gapminder %>% 
+  group_by(country, continent) %>% 
+  nest() %>% 
+  mutate(
+    mod = map(data, ~ lm(log10(gdpPercap) ~ year, data = .x)),
+    mod_tidy = map(mod, tidy),
+    mod_aug = map(mod, augment)
+  )
+```
+#part b 
+```{r}
+#install.packages('viridis')
+library(viridis)
+resid_all <- models %>% 
+  unnest(mod_aug)
+
+ggplot(resid_all, aes(x = year, y = .resid, group = country, color = country)) +
+  geom_line(show.legend = FALSE) +
+  facet_wrap(~ continent) +
+  scale_color_viridis_d(option = "plasma") +
+  labs(title = "Residuals vs Year",
+       x = "Year", y = "Residuals")
+```
+#part c 
+```{r}
+coef_year <- models %>% 
+  unnest(mod_tidy) %>% 
+  filter(term == "year") %>% 
+  mutate(t_stat = estimate / std.error)
+
+ggplot(coef_year, aes(x = continent, y = estimate)) +
+  geom_beeswarm() +
+  labs(title = "continent-wise Beeswarmplot (value of the estimated slope coefficient)",
+       x = "Continent", y = "Slope Estimate")
+
+ggplot(coef_year, aes(x = continent, y = t_stat)) +
+  geom_beeswarm() +
+  labs(title = "continent-wise Beeswarmplot (value of the t-statistic )",
+       x = "Continent", y = "t-statistic")
+```
+Beeswarmplot of t-statistic : on a t-statistic beeswarmplot, higher vlaues of t-statistic suggest that trend is more statistically significant. Beeswarmplot of value of the estimated slope coefficient :The slope estimate plot shows how each country’s log10(gdpPercap) changes with time (year) within each continent. points above zero shows increase GPP per capita over time on a log scale, points below shows decrease.  Each dot on this beeswarm plot represents the slope of log10(gdpPercap) over time for a single country. Positive slopes indicates growth in country’s GDP per capita, whereas negative indicates decline. From the plot we can see that asia has the strongest growth trend, followed by europe and americas. combining. both plots we can say that, Asia, Americas and Europe has increase trend in GDP and it is statistically significatn. Africa does have soome points with positive slope estimates but it's t-statistic values are much lower compared to other continents.
+#part d 
+```{r}
+neg_countries <- coef_year %>% 
+  filter(estimate < 0, p.value < 0.05) %>%
+  select(country, continent, estimate, std.error, p.value)
+print(neg_countries)
+```
+For above countries, the linear model indicates that log10(gdpPercap) declines over time, meaning GDP per capita is decreasing. With p-values below 0.05, this decline is statistically significant. 
+#part e
+```{r}
+neg_names <- neg_countries$country
+
+gapminder %>% 
+  filter(country %in% neg_names) %>%
+  mutate(loggdp = log10(gdpPercap)) %>% 
+  ggplot(aes(x = year, y = loggdp, color = country)) +
+  geom_line() +
+  geom_point() +
+   scale_color_brewer(palette = "Dark2") + 
+  labs(title = "year-wise log10(gdpPercap)", # from part d
+       x = "Year", y = "log10(gdpPercap)")
+```

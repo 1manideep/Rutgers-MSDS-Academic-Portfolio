@@ -1,0 +1,194 @@
+---
+title: "Manideep_mp2134_assignment1"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-02-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+part a
+```{r parta}
+#install.packages("tidyverse") #incase it's not installed
+library(tidyverse)
+realtor = as_tibble(read.csv(file.choose()))
+print(realtor, n =10)
+```
+
+part b
+```{r partb}
+missing_hs = sum(is.na(realtor$house_size))
+print(missing_hs) #this shows that 209 house size values are missing as mentioned in warning message in scatter plot of slide 46
+
+missing_p = sum(is.na(realtor$price))
+print(missing_p) #it shows zero missing price values
+
+
+missing_hsp = sum(is.na(realtor$house_size) & is.na(realtor$price))
+print(missing_hsp) #it shows zero missing values
+```
+
+part c
+```{r partc}
+realtor_data_NJ_NB_nomissing = drop_na(realtor)
+print(realtor_data_NJ_NB_nomissing, n =10) #this tibble has 348 rows and 11 columns
+```
+
+part d
+```{r partd}
+ggplot(realtor_data_NJ_NB_nomissing, aes(x = house_size, y = price, 
+                                         color = factor(bath), size = bath)) +
+  labs(title = "House Area vs. Price in New Brunswick",
+       x = "House Size",
+       y = "Price",
+       color = "Bathrooms",
+       size = "Bathrooms") + geom_point() +  
+  facet_wrap(~factor(bath)) 
+
+```
+
+part e
+```{r parte}
+max_hs <- max(realtor_data_NJ_NB_nomissing$house_size, na.rm = TRUE)
+max_hp <- max(realtor_data_NJ_NB_nomissing$price, na.rm = TRUE)
+Removed <- filter(realtor_data_NJ_NB_nomissing, house_size != max_hs, price != max_hp)
+ggplot(Removed, aes(x = house_size, y = price, 
+                                         color = factor(bath), size = bath)) +
+  labs(title = "House Area vs. Price in New Brunswick after removing max values",
+       x = "House Size",
+       y = "Price",
+       color = "Bathrooms",
+       size = "Bathrooms") + geom_point() +  
+  facet_wrap(~factor(bath))
+```
+
+part f
+```{r partf}
+ggplot(realtor_data_NJ_NB_nomissing, aes(x = factor(bath), y = price, fill = factor(bath))) +
+  geom_boxplot()
+```
+
+## Problem 2
+
+part a 
+```{r}
+#install.packages('babynames')
+library(babynames)
+library(dplyr)
+donna = filter(babynames, name == "Donna")
+donna = arrange(donna, desc(n))
+print(head(donna, 1)) #she's born in 1959
+```
+part b
+```{r}
+likely = filter(babynames, name %in% c("Austin", "Benjamin"), year == 2000)
+likely = arrange(likely, desc(n))
+print(likely) #most common name would be Austin
+```
+
+partc
+```{r}
+quinn = filter(babynames, name == "Quinn", year >= 1991)
+
+ggplot(quinn, aes(x = year, y = n, color = sex)) +
+  geom_line() +
+  labs(title = "Trend of Babies Named Quinn",
+       x = "Year",
+       y = "Number of Babies",
+       color = "Sex")  #quinn name is more popular for boys till around 2010 then it's more poppular for girls
+
+```
+
+part d
+```{r}
+top = filter(babynames, sex == 'F', year == 2017)
+top = arrange(top, desc(n))
+top  = head(top, 5)
+print(top) #top 5 names for girls in 2017 are Emma, Olivia, Ava, Isabella, Sophia
+```
+
+##problem 3
+
+part a
+```{r}
+library(dplyr)
+load(file.choose())
+yellow_combined = yellow_cab |> 
+  mutate(fare = total_amount - tip_amount) |> 
+  mutate(tip_percentage = (tip_amount / fare) * 100) |> 
+  filter(fare >= 10) |> 
+  select(fare, tip_amount, tip_percentage) |> 
+  arrange(desc(tip_percentage))
+
+print(head(yellow_combined, 5))
+```
+
+part b
+```{r}
+largesttips = yellow_cab |> 
+  group_by(passenger_count) |> 
+  summarize(largesttip = max(tip_amount, na.rm = TRUE))
+
+print(largesttips, n =5)
+```
+
+##problem 4
+
+part a
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+gapminder = read_tsv(file.choose())
+```
+
+```{r}
+ggplot(gapminder, aes(x = continent, y = gini, fill = continent)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Gini Coefficient in different Continents ",
+       x = "Continent",
+       y = "Gini Coefficient") 
+```
+
+part b
+```{r}
+ggplot(gapminder, aes(x = gini, y = lifeExp, color = continent)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) + 
+  labs(title = "Gini Coefficient vs Life Expectancy ",
+       x = "Gini Coefficient",
+       y = "Life Expectancy (Years)",
+       color = "Continent")
+#as seen in the plot as gini coefficient increases life expentancy decreased linearly for africa, higher the gini coefficient lower life expecatancy
+#for americas, even for high values of gini coeff life expectancy remained high. for asia and oceania gini coeff is low and life exp is high, for all these its a smaller trend
+#as the gini coeff increases life expectancy decreases although not as much as in africa. 
+#Asia has a weird situation, life expectacny appears to be increasing as the gini coeff increases.
+```
+
+part c
+```{r}
+gapminder = gapminder |> 
+  mutate(gdp = pop * gdpPercap)
+usa_gdp = gapminder |> 
+  filter(year == 2007, country == "United States") |> 
+  pull(gdp)
+gapminder = gapminder |> 
+  mutate(gdp_ratio = gdp / usa_gdp)
+gdp = gapminder |> 
+  group_by(continent, year) |> 
+  summarize(median_gdp_ratio = median(gdp_ratio, na.rm = TRUE))
+print(gdp) #1 Continent, GDP ratio in 2007, (Africa, 0.00131), (Americas, 0.00469), (Asia, 0.0232), (Europe, 0.0181), (Oceania, 0.0312) 
+ggplot(gdp, aes(x = year, y = median_gdp_ratio, color = continent)) +
+  geom_line(size = 1) +  # Line plot
+  geom_point(size = 2) +  # Point plot
+  labs(title = "Median GDP Ratio Over Time by Continent",
+       x = "Year",
+       y = "Median GDP Ratio (Relative to US GDP)",
+       color = "Continent") 
+```
+
+

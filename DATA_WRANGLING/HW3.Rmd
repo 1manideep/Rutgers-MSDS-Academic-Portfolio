@@ -1,0 +1,291 @@
+---
+title: "HW3"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-03-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Problem 1
+```{r}
+#install.packages("vroom")
+#install.packages("dplyr")
+#install.packages("ggplot2")
+
+library(vroom)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+```
+
+Part a
+```{r}
+heights_data <- vroom("/Users/manideeppendyala/Downloads/height.txt", delim = "\t")
+head(heights_data)
+```
+
+```{r}
+heights_data <- heights_data %>%
+  mutate(height_numeric = as.numeric(height))
+
+valid_heights <- heights_data %>%
+  filter(!is.na(height_numeric) & height_numeric >= 40 & height_numeric <= 89)
+
+ggplot(valid_heights, aes(x = height_numeric, fill = sex)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density of Heights", x = "Height (inches)", y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+heights_data <- heights_data %>%
+  mutate(cleaned_height = case_when(
+    !is.na(height_numeric) & height_numeric >= 40 & height_numeric <= 89 ~ height_numeric,  
+    !is.na(height_numeric) & height_numeric > 100 & height_numeric < 250 ~ height_numeric / 2.54,  
+    TRUE ~ NA_real_ 
+  ))
+
+missing_table <- heights_data %>%
+  group_by(sex) %>%
+  summarise(missing_count = sum(is.na(cleaned_height)))
+
+print(missing_table)
+
+uncleaned_heights <- heights_data %>%
+  filter(is.na(cleaned_height)) %>%
+  select(height)
+
+print(uncleaned_heights)
+```
+
+```{r}
+valid_cleaned_heights <- heights_data %>%
+  filter(!is.na(cleaned_height))
+
+ggplot(valid_cleaned_heights, aes(x = cleaned_height, fill = sex)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Heights (After Cleaning)", x = "Height (inches)", y = "Density") +
+  theme_minimal()
+```
+Part b
+
+```{r}
+heights_data <- heights_data %>%
+  mutate(
+    timestamp = ymd_hms(time_stamp)  
+  )
+
+heights_data <- heights_data %>%
+  mutate(
+    year = year(timestamp),  
+    month = month(time_stamp, label = TRUE),  
+    day = day(time_stamp)
+  ) %>%
+  select(-time_stamp)  
+
+head(heights_data)
+```
+
+```{r}
+data_2015 <- heights_data %>%
+  filter(year == 2015)
+
+entries_per_month <- data_2015 %>%
+  group_by(month) %>%
+  summarise(entries = n())
+
+ggplot(entries_per_month, aes(x = month, y = entries, fill = month)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Entries Per Month (from 2015)", x = "Month", y = "Entries") +
+  theme_minimal()
+```
+
+```{r}
+month_max <- entries_per_month %>%
+  arrange(desc(entries)) %>%
+  slice(1)
+
+print(month_max)
+```
+
+#Problem 2
+```{r}
+#install.packages("tidyverse")
+library(tidyverse)
+```
+
+```{r}
+library(tidyverse)
+library(stringr)
+
+load_citations <- function(file_path) {
+  raw_data <- readLines(file_path, warn = FALSE)
+  
+  entry_start_idx <- grep("^@", raw_data)
+
+  entry_types <- str_extract(raw_data[entry_start_idx], "(?<=@)\\w+")
+
+  entry_ids <- str_extract(raw_data[entry_start_idx], "(?<=\\{)[^,]+")
+
+  citations_list <- list()
+
+  for (i in seq_along(entry_start_idx)) {
+    start_idx <- entry_start_idx[i]
+    end_idx <- ifelse(i < length(entry_start_idx), entry_start_idx[i + 1] - 1, length(raw_data))
+
+    entry_lines <- raw_data[(start_idx + 1):end_idx]
+
+    entry_lines <- gsub("[{}]", "", entry_lines)
+    entry_lines <- trimws(entry_lines)
+
+    key_value_pairs <- str_match(entry_lines, "^(\\w+)\\s*=\\s*(.+)")
+
+    key_value_pairs <- key_value_pairs[!is.na(key_value_pairs[, 1]), , drop = FALSE]
+
+    if (nrow(key_value_pairs) > 0) {
+      entry_data <- as.list(setNames(key_value_pairs[, 3], key_value_pairs[, 2]))
+    } else {
+      entry_data <- list()
+    }
+
+    entry_data$ID <- entry_ids[i]
+    entry_data$Type <- entry_types[i]
+
+    citations_list[[i]] <- as_tibble(entry_data, .name_repair = "unique")
+  }
+
+  citations_df <- bind_rows(citations_list) %>%
+    select(ID, Type, title, author, journal, pages, year, publisher, volume, number) %>%  
+    mutate(across(everything(), ~replace_na(.x, "Unknown")))  
+
+  return(citations_df)
+}
+
+file_path <-"/Users/manideeppendyala/Downloads/Citations.txt"
+
+citations_data <- load_citations(file_path)
+
+print(citations_data)
+```
+Part b
+```{r}
+convert_to_bibtex <- function(citation_row) {
+  clean_field <- function(value) {
+    if (!is.na(value) && value != "Unknown") {
+      str_trim(gsub(",\\s*$", "", value)) 
+    } else {
+      NA
+    }
+  }
+
+  title_clean <- clean_field(citation_row$title)
+  author_clean <- clean_field(citation_row$author)
+  journal_clean <- clean_field(citation_row$journal)
+  pages_clean <- clean_field(citation_row$pages)
+  publisher_clean <- clean_field(citation_row$publisher)
+  volume_clean <- clean_field(citation_row$volume)
+  number_clean <- clean_field(citation_row$number)
+  year_clean <- clean_field(citation_row$year)
+
+  bibtex_entry <- str_glue(
+    "@{citation_row$Type}{{{citation_row$ID},\n",
+    "  title={{{title_clean}}},\n",
+    "  author={{{author_clean}}},\n",
+    if (!is.na(journal_clean)) "  journal={{{journal_clean}}},\n" else "",
+    if (!is.na(pages_clean)) "  pages={{{pages_clean}}},\n" else "",
+    if (!is.na(publisher_clean)) "  publisher={{{publisher_clean}}},\n" else "",
+    if (!is.na(volume_clean)) "  volume={{{volume_clean}}},\n" else "",
+    if (!is.na(number_clean)) "  number={{{number_clean}}},\n" else "",
+    "  year={{{year_clean}}}\n",
+    "}}"
+  )
+  
+  return(bibtex_entry)
+}
+
+first_book <- citations_data %>%
+  filter(Type == "book") %>%
+  slice(1)
+
+if (nrow(first_book) > 0) {
+  cat(convert_to_bibtex(first_book))
+} else {
+  cat("No books found")
+}
+```
+#Problem 3
+```{r}
+top_residuals <- function(model, n = 5) {
+  if (!inherits(model, "lm")) {
+    stop("The input must be an lm.")
+  }
+
+  res <- residuals(model)
+
+  total_residuals <- length(res)
+
+  top_n_res <- res[order(abs(res), decreasing = TRUE)][1:n]
+
+  return(top_n_res)
+}
+```
+```{r}
+data(mtcars)
+
+mtcars.lm <- lm(mpg ~ disp, data = mtcars)
+
+cat("Top 5 Residuals:\n")
+print(paste("Residuals:", top_residuals(mtcars.lm)))
+
+cat("\nTop 6 Residuals:\n")
+print(paste("Residuals:", top_residuals(mtcars.lm, n = 6)))
+
+cat("\nTesting with n = 40 :\n")
+print(paste("Residuals:", top_residuals(mtcars.lm, n = 40)))
+```
+#Problem 4
+```{r}
+#install.packages("tidyverse")
+#install.packages("gapminder")
+
+library(tidyverse)
+library(gapminder)
+```
+```{r}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(gapminder)
+library(magrittr)  
+```
+```{r}
+rm(gapminder)
+
+data("gapminder")
+```
+```{r}
+compute_r2 <- function(df) {
+  model <- lm(lifeExp ~ log10(gdpPercap), data = df)
+  summary(model)$r.squared
+}
+
+r_squared <- gapminder %>%
+  group_by(country, continent) %>%  
+  nest() %>%  
+  mutate(r_squared = map_dbl(data, compute_r2)) %>% 
+  select(country, continent, r_squared)  
+
+head(r_squared)
+```
+```{r}
+ggplot(r_squared, aes(x = continent, y = r_squared, fill = continent)) +
+  geom_boxplot() +
+  labs(title = "R-squared Values by Continent",
+       x = "Continent",
+       y = "R-squared of Life Expectancy Model") +
+  theme_minimal()
+```

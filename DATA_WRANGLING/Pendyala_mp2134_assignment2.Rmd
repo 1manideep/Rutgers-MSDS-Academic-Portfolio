@@ -1,0 +1,319 @@
+---
+title: "HW2_Wrangling"
+output: html_document
+date: "2025-02-18"
+---
+#Problem 1
+```{r}
+#install.packages('dplyr')
+library(dplyr)
+library(readr)
+```
+```{r}
+tibble_2021_full <- read_delim("/Users/manideeppendyala/Downloads/scimagojr 2021  Subject Category - Statistics and Probability.csv", 
+                          delim = ";", show_col_types = FALSE)
+
+tibble_2022_full <- read_delim("/Users/manideeppendyala/Downloads/scimagojr 2022  Subject Category - Statistics and Probability.csv", 
+                          delim = ";", show_col_types = FALSE)
+
+tibble_2023_full <- read_delim("/Users/manideeppendyala/Downloads/scimagojr 2023  Subject Category - Statistics and Probability.csv", 
+                          delim = ";", show_col_types = FALSE)
+```
+#Part 1a
+```{r}
+tibble_2022 <- tibble_2022_full %>% select(Publisher, `Total Docs. (2022)`) %>%
+  rename(Num_Documents = `Total Docs. (2022)`) %>%
+  mutate(Year = 2022)
+
+tibble_2023 <- tibble_2023_full %>% select(Publisher, `Total Docs. (2023)`) %>%
+  rename(Num_Documents = `Total Docs. (2023)`) %>%
+  mutate(Year = 2023)
+```
+
+```{r}
+tibble_2022and2023 <- bind_rows(tibble_2022, tibble_2023)
+```
+
+```{r}
+top_three_publishers <- tibble_2022and2023 %>%
+  group_by(Publisher) %>%
+  summarise(Total_Docs = sum(Num_Documents, na.rm = TRUE)) %>%
+  arrange(desc(Total_Docs)) %>%
+  slice(1:3)
+```
+```{r}
+write_csv(top_three_publishers, "/Users/manideeppendyala/Downloads/top_three_publishers.csv")
+```
+
+#Part 1b
+```{r}
+tibble_top_publishers <- bind_rows(
+  tibble_2022_full %>% select(Region, Publisher, `Total Docs. (2022)`) %>% 
+    rename(Num_Documents = `Total Docs. (2022)`) %>% 
+    mutate(Year = 2022),
+  
+  tibble_2023_full %>% select(Region, Publisher, `Total Docs. (2023)`) %>% 
+    rename(Num_Documents = `Total Docs. (2023)`) %>% 
+    mutate(Year = 2023)
+) %>%
+  filter(Publisher %in% top_three_publishers$Publisher) %>%
+  select(Region, Publisher, Year, Num_Documents)
+
+```
+```{r}
+write_csv(tibble_top_publishers, "/Users/manideeppendyala/Downloads/top_publishers_dataset.csv")
+```
+
+#Part 2
+```{r}
+library(tidyverse)
+
+links <- list(
+  "2021" = "https://raw.githubusercontent.com/StevensonBolivar/MSDS2025/main/HW2/Total_Documents_Top3_2021.csv",
+  "2022" = "https://raw.githubusercontent.com/StevensonBolivar/MSDS2025/main/HW2/Total_Documents_Top3_2022.csv",
+  "2023" = "https://raw.githubusercontent.com/StevensonBolivar/MSDS2025/main/HW2/Total_Documents_Top3_2023.csv"
+)
+
+df_list <- map(names(links), ~ {
+  read_csv2(links[[.x]], show_col_types = FALSE) %>%
+    pivot_longer(cols = -Publisher, names_to = "Region", values_to = "Number_of_Docs") %>%
+    mutate(Year = as.integer(.x))  
+})
+
+cleaned_df <- bind_rows(df_list) %>%
+  select(Year, Region, Publisher, Number_of_Docs) 
+
+write_csv(cleaned_df, "full cleaned data.csv")
+
+print(cleaned_df)
+```
+#Part 3
+```{r}
+docs_year <- cleaned_df %>%
+  group_by(Year) %>%
+  summarise(Total_Docs = sum(Number_of_Docs, na.rm = TRUE))
+print(docs_year)
+```
+
+```{r}
+docs_publisher <- cleaned_df %>%
+  group_by(Publisher) %>%
+  summarise(Total_Docs = sum(Number_of_Docs, na.rm = TRUE))
+print(docs_publisher)
+```
+```{r}
+docs_region <- cleaned_df %>%
+  group_by(Region) %>%
+  summarise(Total_Docs = sum(Number_of_Docs, na.rm = TRUE))
+print(docs_region)
+```
+#Part 4
+
+```{r}
+by_year_Documents <- cleaned_df %>%
+  group_by(Region, Year) %>%
+  summarise(Total_Docs = sum(Number_of_Docs, na.rm = TRUE)) %>%
+  pivot_wider(names_from = Year, values_from = Total_Docs)
+print(by_year_Documents)
+```
+
+#Problem 2
+#Part 1
+```{r}
+#install.packages('Lahman')
+library(tidyverse)
+library(Lahman)
+```
+```{r}
+people_tibble_bn <- People %>%
+  select(birthYear, nameFirst) %>%
+  drop_na(birthYear, nameFirst) %>% 
+  group_by(birthYear, nameFirst) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(prop = n / sum(n)) %>%  
+  arrange(birthYear, nameFirst) 
+
+print(people_tibble_bn)
+```
+#Part 2
+
+```{r}
+players_tibble <- Fielding %>%
+  group_by(playerID) %>%
+  summarise(total_of_games = sum(G, na.rm = TRUE), .groups = "drop") %>%
+  left_join(People %>% select(playerID, nameFirst, nameLast, nameGiven), by = "playerID") %>%
+  select(playerID, nameFirst, nameLast, nameGiven, total_of_games) 
+
+print(players_tibble, n=10)
+```
+#Part 3
+
+```{r}
+players_tibble_two <- players_tibble %>%
+  mutate(full_name = paste(nameFirst, nameLast)) %>%
+  select(playerID, full_name, nameGiven, total_of_games) 
+
+print(players_tibble_two)
+```
+#Part 4
+
+```{r}
+top_five <- players_tibble %>%
+  filter(total_of_games >= 500) %>%
+  group_by(nameFirst) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(desc(count)) %>%
+  slice(1:5)
+
+print(top_five)
+```
+#Problem 3
+#Part 1
+
+```{r}
+#install.packages('nycflights13')
+#install.packages('ggplot2')
+library(nycflights13)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+monthly_delays <- flights %>%
+  group_by(month, origin) %>%
+  summarise(
+    mean_dep_delay = mean(dep_delay, na.rm = TRUE),
+    se = sd(dep_delay, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+monthly_delays$month <- factor(monthly_delays$month, levels = 1:12, labels = month.name)
+
+ggplot(monthly_delays, aes(x = month, y = mean_dep_delay, color = origin, group = origin)) +
+  geom_line(size = 1) + 
+  geom_point(size = 2) + 
+  geom_ribbon(aes(ymin = mean_dep_delay - 2 * se, ymax = mean_dep_delay + 2 * se, fill = origin), 
+              alpha = 0.2, color = NA) + 
+  labs(
+    title = "Average Departure Delay by Month",
+    x = "Month",
+    y = "Average Departure Delay",
+    color = "Origin",
+    fill = "Origin"
+  ) +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+#Part 2
+
+```{r}
+flights_filtered <- flights %>%
+  filter(arr_delay <= mean(arr_delay, na.rm = TRUE) + 2 * sd(arr_delay, na.rm = TRUE))
+
+ggplot(flights_filtered, aes(x = distance, y = arr_delay, color = origin)) +
+  geom_point(alpha = 0.3) +  
+  geom_smooth(method = "loess", se = FALSE) + 
+  scale_x_log10() +  
+  labs(
+    title = "Flight Distance vs. Arrival Delay",
+    x = "Flight Distance (miles, log scale)",
+    y = "Arrival Delay (minutes)",
+    color = "Origin Airport"
+  ) +
+  theme_minimal() 
+```
+
+#Part 3
+```{r}
+sep12_flights <- flights %>%
+  filter(month == 9, day == 12)
+
+ggplot(sep12_flights, aes(x = dep_delay, y = arr_delay, color = origin)) +
+  geom_point(alpha = 0.5) +  
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black", size = 1) +  
+  labs(
+    title = "Arrival Delay vs. Departure Delay on September 12, 2013",
+    x = "Departure Delay (minutes)",
+    y = "Arrival Delay (minutes)",
+    color = "Departure Airport"
+  ) +
+  scale_color_manual(values = c("EWR" = "red", "JFK" = "blue", "LGA" = "green"),
+                     labels = c("EWR" = "Newark", "JFK" = "Kennedy", "LGA" = "La Guardia")) +
+  theme_minimal()
+```
+
+#Part 4
+```{r}
+carrier_delays <- flights %>%
+  group_by(carrier) %>%
+  summarise(mean_arr_delay = mean(arr_delay, na.rm = TRUE)) %>%
+  arrange(desc(mean_arr_delay))  
+
+ggplot(carrier_delays, aes(x = reorder(carrier, mean_arr_delay), y = mean_arr_delay, fill = carrier)) +
+  geom_col(show.legend = FALSE) + 
+  coord_flip() +  
+  labs(
+    title = "Mean Arrival Delays for different Carrier",
+    x = "Carrier",
+    y = "Mean Arrival Delay "
+  ) +
+  theme_minimal()
+```
+
+#Problem 4 
+```{r}
+library(gapminder)
+library(ggplot2)
+library(dplyr)
+
+```
+#Part 1
+```{r}
+gapminder_2007 <- gapminder %>% filter(year == 2007)
+
+scatter_plot <- ggplot(gapminder_2007, aes(x = log10(gdpPercap), y = lifeExp, color = continent, size = pop)) +
+  geom_point(alpha = 0.7) + 
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(
+    title = "GDP per Capita vs. Life Expectancy",
+    x = "GDP per capita (log)",
+    y = "Life Expectancy"
+  ) +
+  scale_size(range = c(3, 15)) + guides(size = "none") +
+  theme_minimal()
+print(scatter_plot)
+```
+#Part 2
+```{r}
+library(gapminder)
+library(ggplot2)
+library(dplyr)
+
+gapminder_2007 <- gapminder %>% filter(year == 2007)
+
+gapminder_2007_filtered <- gapminder_2007 %>% filter(lifeExp > 75)
+
+scatter_two <- ggplot(gapminder_2007_filtered, aes(x = log10(gdpPercap), y = lifeExp, color = continent, size = pop)) +
+  geom_point(alpha = 0.7) +  
+  geom_smooth(method = "loess", se = FALSE) +  
+  geom_text(data = gapminder_2007_filtered %>% filter(pop > 35000000),
+            aes(label = country), vjust = -0.5, hjust = 0.5, size = 4) +  
+  labs(
+    title = "GDP per Capita vs. Life Expectancy (>75 years, 2007)",
+    x = "GDP (per capita, log scale)",
+    y = "Life Expectancy"
+  ) +
+  scale_size(range = c(3, 15)) + guides(size = "none") +
+  theme_minimal()
+
+print(scatter_two)
+```
+#Part 3
+```{r}
+#install.packages("patchwork")
+library(patchwork)
+```
+
+```{r, fig.width=12, fig.height=6}
+scatter_plot + scatter_two
+```

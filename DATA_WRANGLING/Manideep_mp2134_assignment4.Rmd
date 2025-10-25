@@ -1,0 +1,322 @@
+---
+title: "HW4"
+output: html_document
+date: "2025-03-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Problem 1 
+#Part a 
+```{r}
+#install.packages("rvest")
+#install.packages("janitor")
+library(rvest)
+library(tidyverse)
+library(janitor)
+
+wiki_link <- "https://en.wikipedia.org/wiki/List_of_FIS_Alpine_Ski_World_Cup_women%27s_champions"
+webpage <- read_html(wiki_link)
+all_tables <- html_elements(webpage, "table") |> html_table(fill = TRUE)
+
+overall_table <- all_tables[[1]] %>% 
+  row_to_names(row_number = 1)
+
+top_three_rows <- overall_table %>% slice_head(n = 3)
+top_three_rows
+```
+#Part b
+```{r}
+clean_overall <- overall_table %>%
+  mutate(
+    `1st` = str_trim(str_remove_all(`1st`, "\\(.*\\)")),
+    `2nd` = str_trim(str_remove_all(`2nd`, "\\(.*\\)")),
+    `3rd` = str_trim(str_remove_all(`3rd`, "\\(.*\\)"))
+  )
+clean_overall
+```
+#Part c
+```{r}
+event_table <- all_tables[[4]] %>%
+  select(Year, Overall, Downhill, `Super-G`, `Giant slalom`, Slalom, Combined, Parallel) %>%
+  mutate(across(everything(), ~ str_remove_all(.x, "\\(.*\\)"))) %>%
+  mutate(across(everything(), str_trim))
+event_table
+```
+
+#Part d
+```{r}
+overall_wins <- all_tables[[4]] %>%
+  select(Overall) %>%
+  mutate(
+    Overall = str_trim(str_remove_all(Overall, "\\(.*\\)"))
+  ) %>%
+  count(Overall, name = "total_wins") %>%
+  arrange(desc(total_wins)) %>%
+  slice_head(n = 3)
+
+overall_wins
+```
+```{r}
+downhill_wins <- all_tables[[4]] %>%
+  select(Downhill) %>%
+  mutate(
+    Downhill = str_trim(str_remove_all(Downhill, "\\(.*\\)"))
+  ) %>%
+  count(Downhill, name = "total_wins") %>%
+  arrange(desc(total_wins)) %>%
+  slice_head(n = 3)
+
+downhill_wins
+```
+
+Problem 2
+#Part a
+```{r}
+library(httr)
+library(jsonlite)
+library(dplyr)
+
+api_key <- "88e2476437754986a18b23b19d9986a8"
+
+endpoint <- "https://api.spoonacular.com/recipes/complexSearch" #got this from documentation on website
+
+params <- list(
+  cuisine = "Italian",
+  maxCarbs = 30,
+  number = 100, 
+  addRecipeNutrition = "true",
+  apiKey = api_key
+)
+
+response <- GET(endpoint, query = params)
+
+data <- fromJSON(content(response, as = "text"))
+```
+#Part b
+```{r}
+recipes <- data$results %>%
+  mutate(
+    carbs = map_dbl(nutrition$nutrients, function(nutrients) {
+      nutrient <- nutrients[nutrients$name == "Carbohydrates", ]
+      if (nrow(nutrient) > 0) nutrient$amount else NA_real_
+    })
+  ) %>%
+  filter(!is.na(carbs)) %>%
+  arrange(carbs) %>%
+  slice_head(n = 10) %>%
+  transmute(
+    Recipe = title,
+    ID = id,
+    Carbs = carbs
+  )
+
+print(recipes)
+```
+#Part c
+```{r}
+wine_url <- "https://api.spoonacular.com/food/wine/recommendation" #got this from documentation on website
+
+wine_params <- list(
+  wine = "riesling",
+  maxPrice = 50,
+  number = 10,
+  apiKey = api_key
+)
+
+wine_response <- GET(wine_url, query = wine_params)
+wine_data <- fromJSON(content(wine_response, as = "text"))
+
+wines <- wine_data$recommendedWines %>%
+  transmute(
+    Title = title,
+    ID = id,
+    Price = price
+  )
+
+print(wines)
+```
+
+Problem 3
+#Part a
+```{r}
+library(gutenbergr)
+library(dplyr)
+library(stringr)
+
+stevenson_titles <- gutenberg_metadata %>%
+  filter(author == "Stevenson, Robert Louis") %>%
+  filter(str_detect(title, "Treasure Island|Jekyll"))
+
+stevenson_titles %>%
+  select(gutenberg_id, title, language)
+```
+#Part b
+```{r}
+library(gutenbergr)
+library(dplyr)
+
+books <- gutenberg_download(c(27780, 43), meta_fields = "title")
+
+unique(books$title)
+```
+#Part c
+```{r}
+library(tidytext)
+library(tibble)
+
+data("stop_words")
+
+top_words <- books %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words, by = "word") %>%
+  count(title, word, sort = TRUE) %>%
+  group_by(title) %>%
+  slice_max(n, n = 10)
+
+top_words
+```
+#Part d
+```{r}
+library(tidyr)
+library(ggplot2)
+
+word_props <- books %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words, by = "word") %>%
+  count(title, word) %>%
+  group_by(title) %>%
+  mutate(proportion = n / sum(n)) %>%
+  select(title, word, proportion) %>%
+  pivot_wider(names_from = title, values_from = proportion, values_fill = 0)
+
+correlation <- cor(
+  word_props$`Treasure Island`,
+  word_props$`The Strange Case of Dr. Jekyll and Mr. Hyde`
+)
+
+cat("Correlation:", correlation, "\n")
+```
+```{r}
+ggplot(word_props, aes(x = `Treasure Island`, y = `The Strange Case of Dr. Jekyll and Mr. Hyde`)) +
+  geom_point(alpha = 0.5, color = "steelblue") +
+  geom_abline(linetype = "dashed", color = "red") +
+  labs(
+    title = "Similarity/Dissimilarity between proportion of non-stop words",
+    x = "Treasure Island",
+    y = "Dr. Jekyll and Mr. Hyde"
+  ) +
+  theme_minimal()
+```
+```{r}
+word_props %>%
+  filter(`The Strange Case of Dr. Jekyll and Mr. Hyde` > 0.001,
+         `Treasure Island` < 0.0001) %>%
+  arrange(desc(`The Strange Case of Dr. Jekyll and Mr. Hyde`)) %>%
+  slice_head(n = 2)
+```
+```{r}
+word_props %>%
+  filter(`Treasure Island` > 0.001,
+         `The Strange Case of Dr. Jekyll and Mr. Hyde` < 0.0001) %>%
+  arrange(desc(`Treasure Island`)) %>%
+  slice_head(n = 2)
+```
+```{r}
+word_props %>%
+  filter(`Treasure Island` > 0.001,
+         `The Strange Case of Dr. Jekyll and Mr. Hyde` > 0.001) %>%
+  arrange(desc(`Treasure Island` + `The Strange Case of Dr. Jekyll and Mr. Hyde`)) %>%
+  slice_head(n = 2)
+```
+#Part e
+```{r}
+treasure_bigrams <- books %>%
+  filter(title == "Treasure Island") %>%
+  unnest_tokens(pair, text, token = "ngrams", n = 2)
+
+library(tidyr)
+
+clean_bigrams <- treasure_bigrams %>%
+  separate(pair, into = c("first_word", "second_word"), sep = " ") %>%
+  filter(!first_word %in% stop_words$word,
+         !second_word %in% stop_words$word) %>%
+  unite(bigram, first_word, second_word, sep = " ")
+
+top_10_bigrams <- clean_bigrams %>%
+  count(bigram, sort = TRUE) %>%
+  slice_head(n = 10)
+
+top_10_bigrams
+```
+
+Problem 4 
+```{r}
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(ggplot2)
+library(patchwork)
+```
+```{r}
+library(gutenbergr)
+
+books <- gutenberg_download(c(27780, 43), meta_fields = "title")
+
+data("stop_words")
+
+book_words <- books %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words, by = "word")
+
+jekyll_words <- book_words %>% filter(title == "The Strange Case of Dr. Jekyll and Mr. Hyde")
+treasure_words <- book_words %>% filter(title == "Treasure Island")
+```
+#Part a
+```{r}
+fear_words <- get_sentiments("nrc") %>%
+  filter(sentiment == "fear")
+
+top_fear_words <- jekyll_words %>%
+  count(word, sort = TRUE) %>%
+  inner_join(fear_words, by = "word") %>%
+  slice_head(n = 10)
+
+print(top_fear_words)
+```
+#Part b
+```{r}
+afinn_lexicon <- get_sentiments("afinn")
+
+strongest_negatives <- treasure_words %>%
+  inner_join(afinn_lexicon, by = "word") %>%
+  arrange(value) %>%  
+  slice_head(n = 10)
+
+print(strongest_negatives)
+```
+
+#Part c
+```{r}
+bing_lexicon <- get_sentiments("bing")
+
+jekyll_sentiments <- jekyll_words %>%
+  inner_join(bing_lexicon, by = "word") %>%
+  count(sentiment) %>%
+  mutate(book = "Dr. Jekyll and Mr. Hyde")
+
+treasure_sentiments <- treasure_words %>%
+  inner_join(bing_lexicon, by = "word") %>%
+  count(sentiment) %>%
+  mutate(book = "Treasure Island")
+
+sentiment_counts <- bind_rows(jekyll_sentiments, treasure_sentiments)
+
+ggplot(sentiment_counts, aes(x = sentiment, y = n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book) +
+  labs(title = "Sentiment Comparison with Bing Lexicon", x = NULL, y = "Word Count") +
+  coord_cartesian(ylim = c(0, 1000)) +
+  theme_minimal(base_size = 14)
+```

@@ -1,0 +1,349 @@
+---
+title: "Manideep_stat_proj"
+output: pdf_document
+date: "2025-05-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(dplyr)
+
+dt <- fread("data.csv")
+
+dt[, race   := factor(race)]
+dt[, gender := factor(gender)]
+dt[, fgen   := factor(fgen, levels=c(0,1), labels=c("NonFirstGen","FirstGen"))]
+dt[, urban  := factor(urban)]
+
+dt[, race_num  := as.integer(race)]
+dt[, gender01  := as.integer(gender == levels(gender)[2])]
+dt[, fgen01    := as.integer(fgen == "FirstGen")]
+dt[, urban_num := as.integer(urban)]
+
+str(dt)
+cat("Number of rows:   ", nrow(dt), "\n",
+    "Number of columns:", ncol(dt), "\n")
+```
+
+
+```{r}
+num_vars <- c("y","selfrpt","mindset","test","sch_race","pov","size")
+dt[, lapply(.SD, function(x) list(mean=mean(x), sd=sd(x), median=median(x))), .SDcols=num_vars]
+
+ggplot(dt, aes(x=factor(z), y=y)) +
+  geom_boxplot(fill="salmon") +
+  labs(x="Treatment (z)", y="Outcome (y)", title="Y by Z")
+
+cor_mat <- cor(dt[, ..num_vars])
+print(round(cor_mat,2))
+```
+
+
+
+```{r}
+# Simple Additive Linear Regression (Unadjusted)
+model_slr <- lm(y ~ z, data = dt)
+summary(model_slr)
+
+unadj_est <- coef(model_slr)["z"]
+unadj_se <- summary(model_slr)$coefficients["z", "Std. Error"]
+unadj_ci_lower <- unadj_est - 1.96 * unadj_se
+unadj_ci_upper <- unadj_est + 1.96 * unadj_se
+
+cat("Unadjusted ATE Estimate:", round(unadj_est, 4), "\n")
+cat("Standard Error:", round(unadj_se, 4), "\n")
+cat("95% CI: [", round(unadj_ci_lower, 4), ", ", round(unadj_ci_upper, 4), "]\n")
+```
+
+```{r}
+# Blocked Design
+dt[, test_q := factor(ntile(test, 3), labels = paste0("Q",1:3))]
+dt[, pov_q := factor(ntile(pov, 3), labels = paste0("Q",1:3))]
+dt[, block := interaction(test_q, pov_q, drop = TRUE)]
+
+dt[, p_treated := mean(z), by = block]
+
+dt[, wt_block := ifelse(z == 1, 1/p_treated, 1/(1-p_treated))]
+
+blocked_model <- lm(y ~ z, data = dt, weights = wt_block)
+blocked_effect <- coef(blocked_model)["z"]
+blocked_se <- summary(blocked_model)$coefficients["z", "Std. Error"]
+blocked_ci_lower <- blocked_effect - 1.96 * blocked_se
+blocked_ci_upper <- blocked_effect + 1.96 * blocked_se
+
+cat("Blocked Design ATE Estimate:", round(blocked_effect, 4), "\n")
+cat("Standard Error:", round(blocked_se, 4), "\n")
+cat("95% CI: [", round(blocked_ci_lower, 4), ", ", round(blocked_ci_upper, 4), "]\n")
+```
+
+```{r}
+# AIPW (Double-Dipping)
+library(boot)
+
+prop_model <- glm(z ~ selfrpt + mindset + test + sch_race + pov + size + 
+                   race + gender + urban + fgen, 
+                 family = binomial(), data = dt)
+dt[, ps := predict(prop_model, type = "response")]
+dt[, ps_trim := pmin(pmax(ps, 0.01), 0.99)]
+
+dt[, wt_aipw := ifelse(z == 1, 1/ps_trim, 1/(1-ps_trim))]
+
+om1f <- lm(y ~ selfrpt + race + gender + fgen + urban + mindset + test + sch_race + pov + size,
+           data=dt[dt$z==1,])
+om0f <- lm(y ~ selfrpt + race + gender + fgen + urban + mindset + test + sch_race + pov + size,
+           data=dt[dt$z==0,])
+
+mu1f <- predict(om1f, newdata = dt)
+mu0f <- predict(om0f, newdata = dt)
+
+dr1f <- mu1f + (dt$z==1)*(dt$y - mu1f)/dt$ps_trim
+dr0f <- mu0f + (dt$z==0)*(dt$y - mu0f)/(1-dt$ps_trim)
+aipw_est <- mean(dr1f) - mean(dr0f)
+
+boot_aipw <- boot(dt, function(d,i){
+  db  <- d[i, ]
+  m  <- glm(z ~ selfrpt + race + gender + fgen + urban + mindset + test + sch_race + pov + size,
+            data=db, family=binomial)
+  p  <- m$fitted.values
+  p  <- pmin(pmax(p, 0.01), 0.99)
+  o1 <- lm(y ~ selfrpt + race + gender + fgen + urban + mindset + test + sch_race + pov + size,
+           data=db[db$z==1,])
+  o0 <- lm(y ~ selfrpt + race + gender + fgen + urban + mindset + test + sch_race + pov + size,
+           data=db[db$z==0,])
+  m1 <- predict(o1, newdata=db)
+  m0 <- predict(o0, newdata=db)
+  d1 <- m1 + (db$z==1)*(db$y - m1)/p
+  d0 <- m0 + (db$z==0)*(db$y - m0)/(1-p)
+  mean(d1) - mean(d0)
+}, R=1000)
+
+aipw_se <- sd(boot_aipw$t)
+aipw_ci <- quantile(boot_aipw$t, c(0.025, 0.975))
+
+cat("AIPW ATE Estimate:", round(aipw_est, 4), "\n")
+cat("Bootstrap Standard Error:", round(aipw_se, 4), "\n")
+cat("95% Bootstrap CI: [", round(aipw_ci[1], 4), ", ", round(aipw_ci[2], 4), "]\n")
+```
+
+
+
+```{r}
+# Double Machine Learning (DML)
+library(ranger)
+library(glmnet)
+library(SuperLearner)
+library(boot)
+
+K <- 5
+
+set.seed(42)
+dt[, fold := sample(1:K, .N, replace = TRUE)]
+
+dt[, y_resid := NA_real_]
+dt[, z_resid := NA_real_]
+
+covariates <- c("selfrpt", "mindset", "test", "sch_race", "pov", "size", 
+                "race_num", "gender01", "urban_num", "fgen01")
+
+outcome_formula <- as.formula(paste("y ~", paste(covariates, collapse = " + ")))
+treatment_formula <- as.formula(paste("z ~", paste(covariates, collapse = " + ")))
+
+create_matrix <- function(dt_subset, formula) {
+  model_matrix <- model.matrix(formula, data = dt_subset)
+  return(model_matrix[, -1])
+}
+
+for (k in 1:K) {
+  train_data <- dt[fold != k]
+  test_data <- dt[fold == k]
+  
+  X_train <- create_matrix(train_data, ~ selfrpt + mindset + test + sch_race + pov + 
+                           size + race_num + gender01 + urban_num + fgen01)
+  X_test <- create_matrix(test_data, ~ selfrpt + mindset + test + sch_race + pov + 
+                          size + race_num + gender01 + urban_num + fgen01)
+  
+  z_model <- cv.glmnet(X_train, train_data$z, family = "binomial", alpha = 0.5)
+  z_pred <- predict(z_model, newx = X_test, type = "response", s = "lambda.min")[,1]
+  dt[fold == k, z_resid := z - z_pred]
+
+  y_model <- ranger(outcome_formula, data = train_data, 
+                   num.trees = 500, seed = 42, min.node.size = 5)
+  y_pred <- predict(y_model, data = test_data)$predictions
+  dt[fold == k, y_resid := y - y_pred]
+}
+
+dml_model <- lm(y_resid ~ z_resid - 1, data = dt)
+dml_est <- coef(dml_model)[1]
+dml_se <- summary(dml_model)$coefficients[1, 2]
+dml_ci_lower <- dml_est - 1.96 * dml_se
+dml_ci_upper <- dml_est + 1.96 * dml_se
+
+alpha <- 0.05
+t_value <- dml_est / dml_se
+p_value <- 2 * pt(-abs(t_value), df = nrow(dt) - 1)
+reject_h0 <- p_value < alpha
+
+dt[, wt_dml := z_resid]
+
+cat("DML ATE Estimate:", round(dml_est, 4), "\n")
+cat("Standard Error:", round(dml_se, 4), "\n")
+cat("95% CI: [", round(dml_ci_lower, 4), ", ", round(dml_ci_upper, 4), "]\n")
+cat("p-value:", round(p_value, 4), "\n")
+```
+
+```{r}
+# Love Plot
+library(cobalt)
+
+var.names <- c(
+  selfrpt   = "selfrpt",
+  mindset   = "mindset",
+  test      = "test",
+  sch_race  = "sch_race",
+  pov       = "pov",
+  size      = "size",
+  race_num  = "race",
+  gender01  = "gender",
+  urban_num = "urban",
+  fgen01    = "first-gen"
+)
+
+love_plot_dots <- love.plot(
+  z ~ selfrpt + mindset + test + sch_race + pov + size +
+      race_num + gender01 + urban_num + fgen01,
+  data         = dt,
+  weights      = list(Blocked = dt$wt_block,
+                      AIPW = dt$wt_aipw,
+                      DML = dt$wt_dml),
+  stats        = "mean.diffs",
+  continuous   = "std",
+  binary       = "std",
+  s.d.denom    = "pooled",
+  abs          = TRUE,
+  var.order    = "unadjusted", 
+  var.names    = var.names,
+  sample.names = c("Unadjusted", "Blocked", "AIPW", "DML"),
+  colors       = c("black", "blue", "purple", "green"),
+  shapes       = c("circle filled", "circle filled", "circle filled", "circle filled"),
+  fill         = c("black", "blue", "purple", "green"),
+  size         = 3,
+  title        = "Covariate Balance: Comparison of All Methods",
+  subtitle     = "Absolute Standardized Mean Differences",
+  grid         = TRUE,
+  threshold    = 0.1
+) +
+  theme(legend.position = "bottom")
+
+print(love_plot_dots)
+
+love_plot_dots_signed <- love.plot(
+  z ~ selfrpt + mindset + test + sch_race + pov + size +
+      race_num + gender01 + urban_num + fgen01,
+  data         = dt,
+  weights      = list(Blocked = dt$wt_block,
+                      AIPW = dt$wt_aipw,
+                      DML = dt$wt_dml),
+  stats        = "mean.diffs",
+  continuous   = "std",
+  binary       = "std",
+  s.d.denom    = "pooled",
+  abs          = FALSE,
+  var.order    = "unadjusted",
+  var.names    = var.names,
+  sample.names = c("Unadjusted", "Blocked", "AIPW", "DML"),
+  colors       = c("blue", "darkgreen", "black", "red"),
+  shapes       = c(16, 16, 16, 16),
+  fill         = c("blue", "darkgreen", "black", "red"),
+  size         = 3,
+  title        = "Covariate Balance: Comparison of All Methods",
+  subtitle     = "Signed Standardized Mean Differences",
+  grid         = TRUE,
+  thresholds   = c(0.1, -0.1)
+) +
+  theme(legend.position = "bottom")
+
+print(love_plot_dots_signed)
+```
+```{r}
+# Balance Metrics Calculation
+bal_unadj <- bal.tab(z ~ selfrpt + mindset + test + sch_race + pov + size +
+                      race_num + gender01 + urban_num + fgen01, 
+                    data = dt)
+unadj_metrics <- data.frame(
+  Method = "Unadjusted",
+  Max_SMD = max(abs(bal_unadj$Balance$Diff.Un)),
+  Mean_SMD = mean(abs(bal_unadj$Balance$Diff.Un))
+)
+
+bal_block <- bal.tab(z ~ selfrpt + mindset + test + sch_race + pov + size +
+                      race_num + gender01 + urban_num + fgen01, 
+                    data = dt, weights = dt$wt_block)
+block_metrics <- data.frame(
+  Method = "Blocked",
+  Max_SMD = max(abs(bal_block$Balance$Diff.Adj)),
+  Mean_SMD = mean(abs(bal_block$Balance$Diff.Adj))
+)
+
+bal_aipw <- bal.tab(z ~ selfrpt + mindset + test + sch_race + pov + size +
+                     race_num + gender01 + urban_num + fgen01, 
+                   data = dt, weights = dt$wt_aipw)
+aipw_metrics <- data.frame(
+  Method = "AIPW",
+  Max_SMD = max(abs(bal_aipw$Balance$Diff.Adj)),
+  Mean_SMD = mean(abs(bal_aipw$Balance$Diff.Adj))
+)
+
+bal_dml <- bal.tab(z ~ selfrpt + mindset + test + sch_race + pov + size +
+                    race_num + gender01 + urban_num + fgen01, 
+                  data = dt, weights = dt$wt_dml)
+dml_metrics <- data.frame(
+  Method = "DML",
+  Max_SMD = max(abs(bal_dml$Balance$Diff.Adj)),
+  Mean_SMD = mean(abs(bal_dml$Balance$Diff.Adj))
+)
+
+all_metrics <- rbind(unadj_metrics, block_metrics, aipw_metrics, dml_metrics)
+
+print(all_metrics)
+```
+```{r}
+treatment_effects <- data.frame(
+  Method = c("Unadjusted", "Blocked", "AIPW", "DML"),
+  ATE = c(unadj_est, blocked_effect, aipw_est, dml_est),
+  SE = c(unadj_se, blocked_se, aipw_se, dml_se),
+  CI_Lower = c(unadj_ci_lower, blocked_ci_lower, aipw_ci[1], dml_ci_lower),
+  CI_Upper = c(unadj_ci_upper, blocked_ci_upper, aipw_ci[2], dml_ci_upper)
+)
+
+ggplot(treatment_effects, aes(x = ATE, y = Method, color = Method)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_color_manual(values = c("black", "blue", "purple", "green")) +
+  labs(title = "Treatment Effect Estimates with 95% Confidence Intervals",
+       subtitle = "Comparison of different causal inference methods",
+       x = "Average Treatment Effect (ATE)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+summary_table <- data.frame(
+  Method = treatment_effects$Method,
+  ATE = round(treatment_effects$ATE, 4),
+  SE = round(treatment_effects$SE, 4),
+  CI_Lower = round(treatment_effects$CI_Lower, 4),
+  CI_Upper = round(treatment_effects$CI_Upper, 4),
+  Max_SMD = round(all_metrics$Max_SMD, 4),
+  Mean_SMD = round(all_metrics$Mean_SMD, 4)
+)
+
+unadj_mean_smd <- all_metrics$Mean_SMD[1]
+summary_table$Bias_Reduction <- round((1 - all_metrics$Mean_SMD / unadj_mean_smd) * 100, 1)
+
+print(summary_table)
+```
+
