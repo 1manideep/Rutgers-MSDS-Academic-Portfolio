@@ -31,22 +31,33 @@ The goal of this portfolio is to demonstrate statistical rigor, programming dept
 
 
 ⚙️ Tools & Environment
+
 	•	Languages: R, Python, SQL
+	
 	•	R Libraries: tidyverse, dplyr, ggplot2, MASS, boot, glmnet, pls, data.table
+	
 	•	Python Libraries: numpy, pandas, matplotlib, collections, heapq, sklearn
+
 	•	Platforms: RStudio, Jupyter, VS Code
+	
 	•	Version Control: Git + GitHub
 
 
 📜 Academic Integrity & Data Policy
+
 	•	All code, analysis, and visualizations are original work authored for Rutgers course submissions.
+	
 	•	Original assignment prompts are excluded in compliance with Rutgers Academic Integrity Policy.
+	
 	•	Only public datasets are used (ISLR, MASS, tidyverse, etc.); no private or proprietary data included.
 
 
 
 🧩 How to Navigate
+
 	•	Each folder contains .Rmd, .ipynb, or .py files (source code) and rendered .pdf / .html reports.
+	
 	•	Each subfolder README.md provides concise context, key results, and the analytical focus.
+	
 	•	Start from this README, then explore individual course folders for detailed work.
 
