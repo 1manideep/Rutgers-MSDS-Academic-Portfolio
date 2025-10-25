@@ -4,7 +4,6 @@ This folder contains assignments from the Data Wrangling course completed as par
 All work was done in R using reproducible R Markdown workflows.
 The focus of this course was to develop fluency in data cleaning, transformation, feature engineering, and integration using the tidyverse ecosystem.
 
-⸻
 
 📂 Contents
 
@@ -19,7 +18,6 @@ The focus of this course was to develop fluency in data cleaning, transformation
 	• Manideep_mp2134_assignment5.Rmd / Manideep_mp2134_assignment5.html	Web scraping and API-based ingestion using jsonlite; tidying nested JSON structures and visualizing cleaned data.
 
 
-⸻
 
 🧠 Key Learning Outcomes
 	•	Mastered the tidy data philosophy: long vs. wide formats, key–value reshaping, and join operations.
@@ -32,7 +30,6 @@ The focus of this course was to develop fluency in data cleaning, transformation
 	
 	•	Learned to design modular, maintainable data-cleaning scripts with consistent coding style.
 
-⸻
 
 ⚙️ Tools & Environment
 	•	Language: R (v4.3+)
@@ -43,8 +40,6 @@ The focus of this course was to develop fluency in data cleaning, transformation
 	
 	•	IDE: RStudio
 
-⸻
-
 🔒 Notes
 	•	All assignments are original work and represent graded submissions for the course.
 	
@@ -52,7 +47,6 @@ The focus of this course was to develop fluency in data cleaning, transformation
 	
 	•	Each .html file corresponds directly to its .Rmd source for reproducibility.
 
-⸻
 
 🏁 Summary
 
