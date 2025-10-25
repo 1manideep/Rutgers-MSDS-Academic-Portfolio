@@ -60,6 +60,3 @@ The course emphasized algorithmic thinking, computational efficiency, and implem
 This course strengthened the computational backbone of my data science foundation — bridging theory and practice in algorithmic design.
 Through these exercises, I developed the ability to reason about efficiency, scalability, and performance trade-offs, essential for advanced machine learning and data engineering work.
 
-⸻
-
-Would you like me to give you the Regression and Time Series README next (so your full 5-course portfolio set is complete and uniform)?
